@@ -62,7 +62,7 @@
     });
 
     // -------- GAME STATE --------
-    // "title", "levelIntro", "playing", "enter_initials", "gameover", "levelComplete"
+    // "title", "levelIntro", "playing", "bossCut", "enter_initials", "gameover", "levelComplete"
     let gameState = "title";
     let currentLevel = 1; // 1 = construction, 2 = oil & gas
 
@@ -77,7 +77,7 @@
     music1.loop   = true;
     music1.volume = 0.45;
 
-    const music2  = new Audio("level2.wav"); // Level 2 music (new)
+    const music2  = new Audio("level2.wav"); // Level 2 music
     music2.loop   = true;
     music2.volume = 0.45;
 
@@ -190,7 +190,7 @@
       if(bossActive) return 0;
       const difficulty = Math.min(score / 1200, 3);
       const jumpBonus  = (player.state === "jump") ? 1.2 : 0;
-      const levelBoost = (currentLevel === 2 ? 0.8 : 0); // Level 2 slightly faster
+      const levelBoost = (currentLevel === 2 ? 0.8 : 0);
       return baseScrollSpeed + difficulty + jumpBonus + levelBoost;
     }
 
@@ -218,8 +218,10 @@
       levelIntro2:    new Image(),
       levelComplete1: new Image(),
       levelComplete2: new Image(),
-      bg1:            new Image(), // construction
-      bg2:            new Image(), // oil & gas
+      bossCut1:       new Image(),
+      bossCut2:       new Image(),
+      bg1:            new Image(),
+      bg2:            new Image(),
       stand:          new Image(),
       run1:           new Image(),
       run2:           new Image(),
@@ -240,12 +242,14 @@
       boss2Proj:      new Image()
     };
 
-    // sources
+    // sources (use exact filenames)
     images.title.src          = "Title.png";
     images.levelIntro1.src    = "Level1.png";
     images.levelIntro2.src    = "Level2.png";
     images.levelComplete1.src = "Level1Complete.png";
     images.levelComplete2.src = "level2Complete.png";
+    images.bossCut1.src       = "Boss Screen.png";
+    images.bossCut2.src       = "Level2 boss cut.png";
     images.bg1.src            = "construction_bg.png";
     images.bg2.src            = "OG_bg.png";
     images.stand.src          = "Stand.png";
@@ -454,7 +458,6 @@
       coins.length     = 0;
       hats.length      = 0;
 
-      // Configure boss based on level
       if(currentLevel === 1){
         bossConfig.idleImg       = images.boss1Idle;
         bossConfig.throwImg      = images.boss1Throw;
@@ -614,7 +617,7 @@
 
       const spd = getWorldSpeed();
 
-      // Hazards (a bit more aggressive on Level 2)
+      // Hazards
       hazardTimer--;
       if(hazardTimer <= 0){
         if(Math.random() < 0.6) spawnDumpster(); else spawnDrone();
@@ -626,10 +629,10 @@
           diff   = Math.min(score / 80, 220);
           minGap = 90;
         }else{
-          base   = 180;          // slightly shorter base gap
+          base   = 180;
           jitter = 150;
-          diff   = Math.min(score / 60, 260); // ramps faster
-          minGap = 70;           // can get a bit tighter
+          diff   = Math.min(score / 60, 260);
+          minGap = 70;
         }
         hazardTimer = Math.max(minGap, base + jitter * Math.random() - diff);
       }
@@ -704,7 +707,8 @@
           playSound(coinSound);
           coinStreak++;
           if(!bossActive && !bossDefeated && coinStreak >= 30){
-            startBossFight();
+            // Trigger cutscene instead of instant boss
+            gameState = "bossCut";
           }
           return true;
         }
@@ -860,6 +864,26 @@
         ctx.fillText("Press SPACE / TAP / ↑ to Start Level 2", canvas.width/2, canvas.height-32);
         ctx.textAlign="start";
       }
+    }
+
+    function drawBossCutScreen(){
+      ctx.fillStyle="#000";
+      ctx.fillRect(0,0,canvas.width,canvas.height);
+
+      const img = (currentLevel === 1 ? images.bossCut1 : images.bossCut2);
+      if(img.width && img.height){
+        const maxW=canvas.width, maxH=canvas.height;
+        const scale=Math.min(maxW/img.width, maxH/img.height);
+        const w=img.width*scale, h=img.height*scale;
+        const x=(canvas.width-w)/2, y=(canvas.height-h)/2;
+        ctx.drawImage(img,x,y,w,h);
+      }
+
+      ctx.fillStyle="#f9fafb";
+      ctx.textAlign="center";
+      ctx.font="18px system-ui";
+      ctx.fillText("Press SPACE / TAP / ↑ to face the boss!", canvas.width/2, canvas.height-24);
+      ctx.textAlign="start";
     }
 
     function drawLevelCompleteScreen(){
@@ -1099,6 +1123,15 @@
         return;
       }
 
+      if(gameState==="bossCut"){
+        if(key===" " || key==="ArrowUp" || key==="Enter"){
+          // Resume playing and start boss fight
+          gameState = "playing";
+          startBossFight();
+        }
+        return;
+      }
+
       if(gameState==="playing"){
         if((key===" " || key==="ArrowUp") && player.onGround){
           player.vy=-30;
@@ -1149,6 +1182,12 @@
         resetGame();
         playLevelMusic();
         gameState="playing";
+        return;
+      }
+
+      if(gameState==="bossCut"){
+        gameState="playing";
+        startBossFight();
         return;
       }
 
@@ -1216,6 +1255,10 @@
       if(gameState==="playing" || gameState==="gameover" ||
          gameState==="enter_initials" || gameState==="levelComplete"){
         drawScrollingBackground();
+      }else if(gameState==="bossCut"){
+        // Simple static background for cutscene
+        ctx.fillStyle="#000";
+        ctx.fillRect(0,0,canvas.width,canvas.height);
       }else{
         const bg = getActiveBgImage();
         if(bg.width && bg.height){
@@ -1230,6 +1273,8 @@
         drawTitleScreen();
       }else if(gameState==="levelIntro"){
         drawLevelIntroScreen();
+      }else if(gameState==="bossCut"){
+        drawBossCutScreen();
       }else if(gameState==="levelComplete"){
         drawLevelCompleteScreen();
       }else{
