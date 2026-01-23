@@ -1001,7 +1001,7 @@ const canvas = document.getElementById("gameCanvas");
           score += 100;
           playSound(coinSound);
           coinStreak++;
-          if(!bossActive && !bossDefeated && coinStreak >= 30){
+          if(!bossActive && !bossDefeated && coinStreak >= 20){
             // Trigger cutscene instead of instant boss
             gameState = "bossCut";
           }
@@ -1095,7 +1095,7 @@ const canvas = document.getElementById("gameCanvas");
 
       if(!bossDefeated && !bossActive){
         ctx.font = "12px system-ui";
-        ctx.fillText("Boss in: " + Math.max(0,30-coinStreak) + " stations", 20,77);
+        ctx.fillText("Boss in: " + Math.max(0,20-coinStreak) + " stations", 20,77);
       }
     }
 
