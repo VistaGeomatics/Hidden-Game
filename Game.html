@@ -22,12 +22,15 @@
 
     *{ box-sizing:border-box; }
     html,body{ height:100%; margin:0; }
+
     body{
       font-family:"Inter",system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
       background:var(--bg);
       color:var(--text);
       overflow-x:hidden;
-      touch-action:none;
+      overflow-y:auto;
+      -webkit-overflow-scrolling:touch;
+      touch-action: pan-y;
     }
 
     /* ===== Background (Glitch.mov) ===== */
@@ -73,6 +76,7 @@
       position:relative;
       z-index:1;
       min-height:100svh;
+      min-height:100dvh;
       display:flex;
       align-items:center;
       justify-content:center;
@@ -129,7 +133,6 @@
       letter-spacing:0.02em;
     }
 
-    /* Back button (portal style) */
     .back{
       display:inline-flex;
       align-items:center;
@@ -150,9 +153,7 @@
     }
     .back:hover{ transform:translateY(-1px); border-color:rgba(255,255,255,0.18); filter:brightness(1.05); }
 
-    .card-body{
-      padding:16px 18px 18px;
-    }
+    .card-body{ padding:16px 18px 18px; }
 
     .canvas-wrap{
       border-radius:20px;
@@ -160,16 +161,21 @@
       background:rgba(0,0,0,0.35);
       overflow:hidden;
       box-shadow:0 18px 55px rgba(0,0,0,0.65);
+      display:flex;
+      justify-content:center;
+      align-items:center;
     }
 
     #gameCanvas{
       width:100%;
       height:auto;
+      max-width:100%;
+      max-height:70vh;
       display:block;
       background:#000;
-      /* keep pixel edges clean */
       image-rendering: crisp-edges;
       image-rendering: pixelated;
+      touch-action:none;
     }
 
     .card-foot{
@@ -190,11 +196,10 @@
 
   <!-- Firebase (optional shared high score) -->
   <script src="https://www.gstatic.com/firebasejs/12.6.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/12.6.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/12.6.0/firebase-firestore-compat.js"></script>
 </head>
 
 <body>
-  <!-- Background -->
   <div class="bg-video" aria-hidden="true">
     <video id="bgVid" autoplay muted loop playsinline preload="metadata">
       <source src="Glitch.mov" type="video/mp4">
@@ -202,7 +207,6 @@
   </div>
   <div class="bg-overlay" aria-hidden="true"></div>
 
-  <!-- Laser -->
   <canvas class="cursor-trail" id="trail" aria-hidden="true"></canvas>
 
   <main class="wrap">
@@ -242,7 +246,7 @@
       tryPlay();
     })();
 
-    // Smooth laser (matches portal vibe)
+    // Smooth laser (desktop only)
     (function(){
       const canvas = document.getElementById("trail");
       if(!canvas) return;
@@ -348,18 +352,69 @@
   </script>
 
   <script>
-const canvas = document.getElementById("gameCanvas");
+    const canvas = document.getElementById("gameCanvas");
     const ctx = canvas.getContext("2d");
 
-    document.getElementById("backBtn").addEventListener("click", () => {
-      // Change this if your forms page has a different URL
-      window.location.href = "index.html";
+    // ===== Mobile canvas sizing (prevents bottom cutoff) =====
+    (function(){
+      const wrap   = document.querySelector(".canvas-wrap");
+      const head   = document.querySelector(".card-head");
+      const foot   = document.querySelector(".card-foot");
+      if(!canvas || !wrap) return;
+
+      const BASE_W = canvas.width;
+      const BASE_H = canvas.height;
+      const ASPECT = BASE_W / BASE_H;
+
+      function resizeGameCanvas(){
+        const maxW = wrap.clientWidth;
+
+        const vh = (window.visualViewport && window.visualViewport.height)
+          ? window.visualViewport.height
+          : window.innerHeight;
+
+        const headH = head ? head.getBoundingClientRect().height : 0;
+        const footH = foot ? foot.getBoundingClientRect().height : 0;
+
+        const buffer = 44;
+        const maxH = Math.max(240, vh - headH - footH - buffer);
+
+        let cssW = maxW;
+        let cssH = cssW / ASPECT;
+
+        if(cssH > maxH){
+          cssH = maxH;
+          cssW = cssH * ASPECT;
+        }
+
+        canvas.style.width  = Math.floor(cssW) + "px";
+        canvas.style.height = Math.floor(cssH) + "px";
+      }
+
+      window.addEventListener("resize", resizeGameCanvas, {passive:true});
+      window.addEventListener("orientationchange", resizeGameCanvas, {passive:true});
+      if(window.visualViewport){
+        window.visualViewport.addEventListener("resize", resizeGameCanvas, {passive:true});
+      }
+      window.addEventListener("load", resizeGameCanvas, {passive:true});
+      resizeGameCanvas();
+    })();
+
+    // Back button uses href
+    document.getElementById("backBtn").addEventListener("click", (e) => {
+      e.preventDefault();
+      const href = e.currentTarget.getAttribute("href");
+      if(href) window.location.href = href;
     });
 
+    // ===== Level 3 redirect settings =====
+    const LEVEL3_URL = "https://vistageomatics.github.io/Doomer/";
+    const LEVEL2_COMPLETE_REDIRECT_DELAY_MS = 2200;
+    let levelCompleteAt = 0;
+
     // -------- GAME STATE --------
-    // "title", "levelIntro", "playing", "bossCut", "enter_initials", "gameover", "levelComplete"
     let gameState = "title";
-    let currentLevel = 1; // 1 = construction, 2 = oil & gas
+    let currentLevel = 1;
 
     // -------- AUDIO --------
     const coinSound  = new Audio("Coin Count Loop 02 End.mp3");
@@ -368,11 +423,11 @@ const canvas = document.getElementById("gameCanvas");
     const deathSound = new Audio("VideoGameSequence_BW.50912.wav");
     deathSound.volume = 0.85;
 
-    const music1  = new Audio("VideoGameLoading_BW.50941.wav"); // Level 1 music
+    const music1  = new Audio("VideoGameLoading_BW.50941.wav");
     music1.loop   = true;
     music1.volume = 0.45;
 
-    const music2  = new Audio("level2.wav"); // Level 2 music
+    const music2  = new Audio("level2.wav");
     music2.loop   = true;
     music2.volume = 0.45;
 
@@ -381,7 +436,6 @@ const canvas = document.getElementById("gameCanvas");
     function playSound(a){
       try { a.currentTime = 0; a.play(); } catch(e){}
     }
-
     function playLevelMusic(){
       try {
         if (currentMusic) currentMusic.pause();
@@ -464,6 +518,7 @@ const canvas = document.getElementById("gameCanvas");
       highScore = { score, initials: combined };
       try {
         localStorage.setItem("topo_dash_highscore", JSON.stringify(highScore));
+
       } catch(e){}
       await saveHighScoreToServer();
       enteringInitials = false;
@@ -537,7 +592,6 @@ const canvas = document.getElementById("gameCanvas");
       boss2Proj:      new Image()
     };
 
-    // sources (use exact filenames)
     images.title.src          = "Title.png";
     images.levelIntro1.src    = "Level1.png";
     images.levelIntro2.src    = "Level2.png";
@@ -688,7 +742,7 @@ const canvas = document.getElementById("gameCanvas");
 
     function spawnDumpster(){
       const img = (currentLevel === 1 ? images.dumpster : images.bear);
-      const sizeFactor = (currentLevel === 1 ? 0.75 : 1.1); // bigger bears
+      const sizeFactor = (currentLevel === 1 ? 0.75 : 1.1);
       const scale  = (bigHeight * sizeFactor) / img.height;
       const width  = img.width  * scale;
       const height = img.height * scale;
@@ -887,8 +941,11 @@ const canvas = document.getElementById("gameCanvas");
             bossProjectiles.length = 0;
             coinStreak = 0;
             score += 500;
-            if(currentMusic) currentMusic.pause();
+
+            try { if (currentMusic) currentMusic.pause(); } catch(e){}
+
             gameState = "levelComplete";
+            levelCompleteAt = performance.now(); // ✅ used for Level 2 auto-redirect
             return;
           }
         }
@@ -912,7 +969,6 @@ const canvas = document.getElementById("gameCanvas");
 
       const spd = getWorldSpeed();
 
-      // Hazards
       hazardTimer--;
       if(hazardTimer <= 0){
         if(Math.random() < 0.6) spawnDumpster(); else spawnDrone();
@@ -932,7 +988,6 @@ const canvas = document.getElementById("gameCanvas");
         hazardTimer = Math.max(minGap, base + jitter * Math.random() - diff);
       }
 
-      // Coins
       coinTimer--;
       if(coinTimer <= 0){
         spawnCoin();
@@ -942,7 +997,6 @@ const canvas = document.getElementById("gameCanvas");
         coinTimer    = Math.max(130, base + jitter * Math.random() - diff);
       }
 
-      // Hard hats
       hatTimer--;
       if(hatTimer <= 0){
         spawnHat();
@@ -952,7 +1006,6 @@ const canvas = document.getElementById("gameCanvas");
         hatTimer     = Math.max(500, base + jitter * Math.random() - diff);
       }
 
-      // Ground hazards
       updateList(dumpsters, o=>{
         o.x -= spd;
         const hitbox = {
@@ -964,7 +1017,6 @@ const canvas = document.getElementById("gameCanvas");
         checkHazardCollision(hitbox);
       });
 
-      // Air hazards (jump-only)
       updateList(drones, d=>{
         d.x -= spd;
         const hitbox = {
@@ -993,7 +1045,6 @@ const canvas = document.getElementById("gameCanvas");
         }
       });
 
-      // Coins
       updateList(coins, c=>{
         c.x -= spd;
         if(rectsOverlap(player, c)){
@@ -1001,15 +1052,15 @@ const canvas = document.getElementById("gameCanvas");
           score += 100;
           playSound(coinSound);
           coinStreak++;
-          if(!bossActive && !bossDefeated && coinStreak >= 20){
-            // Trigger cutscene instead of instant boss
+
+          // ✅ Boss cutscene after 15 total stations
+          if(!bossActive && !bossDefeated && coinStreak >= 15){
             gameState = "bossCut";
           }
           return true;
         }
       });
 
-      // Hard hats
       updateList(hats, h=>{
         h.x -= spd;
         if(rectsOverlap(player, h)){
@@ -1049,183 +1100,115 @@ const canvas = document.getElementById("gameCanvas");
     }
 
     function rectsOverlap(a,b){
-      return (
-        a.x < b.x + b.width &&
-        a.x + a.width > b.x &&
-        a.y < b.y + b.height &&
-        a.y + a.height > b.y
-      );
+      return a.x < b.x + b.width &&
+             a.x + a.width > b.x &&
+             a.y < b.y + b.height &&
+             a.y + a.height > b.y;
     }
 
-    // -------- DRAW OBJECTS --------
     function drawDumpsters(){
       const img = (currentLevel === 1 ? images.dumpster : images.bear);
-      dumpsters.forEach(o=>ctx.drawImage(img, o.x,o.y,o.width,o.height));
+      dumpsters.forEach(o => ctx.drawImage(img, o.x, o.y, o.width, o.height));
     }
     function drawDrones(){
       const img = (currentLevel === 1 ? images.drone : images.eagle);
-      drones.forEach(d=>ctx.drawImage(img, d.x,d.y,d.width,d.height));
+      drones.forEach(d => ctx.drawImage(img, d.x, d.y, d.width, d.height));
     }
-    function drawCoins(){ coins.forEach(c=>ctx.drawImage(images.coin, c.x,c.y,c.width,c.height)); }
-    function drawHats(){ hats.forEach(h=>ctx.drawImage(images.hat, h.x,h.y,h.width,h.height)); }
+    function drawCoins(){ coins.forEach(c => ctx.drawImage(images.coin, c.x, c.y, c.width, c.height)); }
+    function drawHats(){ hats.forEach(h => ctx.drawImage(images.hat, h.x, h.y, h.width, h.height)); }
 
     function drawBoss(){
       if(!bossActive) return;
       const img = (bossAnimState === "throw") ? bossConfig.throwImg : bossConfig.idleImg;
+      if(!img) return;
       ctx.drawImage(img, boss.x, boss.y, boss.width, boss.height);
     }
-
     function drawBossProjectiles(){
-      bossProjectiles.forEach(p=>{
+      bossProjectiles.forEach(p => {
         ctx.drawImage(bossConfig.projectileImg, p.x, p.y, p.width, p.height);
       });
     }
 
-    // -------- HUD & SCREENS --------
-    function drawHUD(){
-      if(gameState !== "playing") return;
-
-      ctx.fillStyle = "rgba(0,0,0,0.55)";
-      ctx.fillRect(10,10,320,70);
-
-      ctx.fillStyle = "#f9fafb";
-      ctx.font = "16px system-ui";
-      ctx.fillText("Score: " + score, 20,35);
-      ctx.fillText("Total Stations: " + coinsCollected, 20,57);
-
-      if(!bossDefeated && !bossActive){
-        ctx.font = "12px system-ui";
-        ctx.fillText("Boss in: " + Math.max(0,20-coinStreak) + " stations", 20,77);
-      }
-    }
-
+    // -------- SCREENS --------
     function drawTitleScreen(){
-      ctx.fillStyle="#000";
+      if(images.title.width) ctx.drawImage(images.title, 0, 0, canvas.width, canvas.height);
+      ctx.fillStyle="rgba(0,0,0,0.45)";
       ctx.fillRect(0,0,canvas.width,canvas.height);
-
-      const img = images.title;
-      if(img.width && img.height){
-        const maxW=canvas.width*0.9, maxH=canvas.height*0.8;
-        const scale=Math.min(maxW/img.width, maxH/img.height);
-        const w=img.width*scale, h=img.height*scale;
-        const x=(canvas.width-w)/2, y=(canvas.height-h)/2-10;
-        ctx.drawImage(img,x,y,w,h);
-      }
-
       ctx.fillStyle="#f9fafb";
       ctx.textAlign="center";
-      ctx.font="20px system-ui";
-      ctx.fillText("Press SPACE / TAP / ↑ to Continue", canvas.width/2, canvas.height-40);
-
-      ctx.font="14px system-ui";
-      ctx.fillText(
-        "High Score: " + highScore.initials + " " + highScore.score,
-        canvas.width/2,
-        canvas.height-18
-      );
+      ctx.font="28px system-ui";
+      ctx.fillText("Tap to Start", canvas.width/2, canvas.height*0.72);
       ctx.textAlign="start";
     }
 
     function drawLevelIntroScreen(){
-      ctx.fillStyle="#000";
+      const img = (currentLevel === 1 ? images.levelIntro1 : images.levelIntro2);
+      if(img.width) ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+      ctx.fillStyle="rgba(0,0,0,0.35)";
       ctx.fillRect(0,0,canvas.width,canvas.height);
-
-      if(currentLevel === 1){
-        const img=images.levelIntro1;
-        if(img.width && img.height){
-          const maxW=canvas.width, maxH=canvas.height;
-          const scale=Math.min(maxW/img.width, maxH/img.height);
-          const w=img.width*scale, h=img.height*scale;
-          const x=(canvas.width-w)/2, y=(canvas.height-h)/2;
-          ctx.drawImage(img,x,y,w,h);
-        }
-        ctx.fillStyle="#f9fafb";
-        ctx.textAlign="center";
-        ctx.font="18px system-ui";
-        ctx.fillText("Press SPACE / TAP / ↑ to Start Level 1", canvas.width/2, canvas.height-32);
-        ctx.textAlign="start";
-      }else{
-        const img=images.levelIntro2;
-        if(img.width && img.height){
-          const maxW=canvas.width, maxH=canvas.height;
-          const scale=Math.min(maxW/img.width, maxH/img.height);
-          const w=img.width*scale, h=img.height*scale;
-          const x=(canvas.width-w)/2, y=(canvas.height-h)/2;
-          ctx.drawImage(img,x,y,w,h);
-        }
-        ctx.fillStyle="#f9fafb";
-        ctx.textAlign="center";
-        ctx.font="18px system-ui";
-        ctx.fillText("Press SPACE / TAP / ↑ to Start Level 2", canvas.width/2, canvas.height-32);
-        ctx.textAlign="start";
-      }
-    }
-
-    function drawBossCutScreen(){
-      ctx.fillStyle="#000";
-      ctx.fillRect(0,0,canvas.width,canvas.height);
-
-      const img = (currentLevel === 1 ? images.bossCut1 : images.bossCut2);
-      if(img.width && img.height){
-        const maxW=canvas.width, maxH=canvas.height;
-        const scale=Math.min(maxW/img.width, maxH/img.height);
-        const w=img.width*scale, h=img.height*scale;
-        const x=(canvas.width-w)/2, y=(canvas.height-h)/2;
-        ctx.drawImage(img,x,y,w,h);
-      }
 
       ctx.fillStyle="#f9fafb";
       ctx.textAlign="center";
-      ctx.font="18px system-ui";
-      ctx.fillText("Press SPACE / TAP / ↑ to face the boss!", canvas.width/2, canvas.height-24);
+      ctx.font="26px system-ui";
+      ctx.fillText("Tap to Begin", canvas.width/2, canvas.height*0.80);
+      ctx.textAlign="start";
+    }
+
+    function drawBossCutScreen(){
+      const img = (currentLevel === 1 ? images.bossCut1 : images.bossCut2);
+      if(img.width) ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+      ctx.fillStyle="rgba(0,0,0,0.25)";
+      ctx.fillRect(0,0,canvas.width,canvas.height);
+
+      ctx.fillStyle="#f9fafb";
+      ctx.textAlign="center";
+      ctx.font="22px system-ui";
+      ctx.fillText("Tap to Fight the Boss", canvas.width/2, canvas.height*0.86);
       ctx.textAlign="start";
     }
 
     function drawLevelCompleteScreen(){
-      ctx.fillStyle="#000";
+      const img = (currentLevel === 1 ? images.levelComplete1 : images.levelComplete2);
+      if(img.width) ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+      ctx.fillStyle="rgba(0,0,0,0.25)";
       ctx.fillRect(0,0,canvas.width,canvas.height);
 
-      if(currentLevel === 1){
-        const img=images.levelComplete1;
-        if(img.width && img.height){
-          const maxW=canvas.width, maxH=canvas.height;
-          const scale=Math.min(maxW/img.width, maxH/img.height);
-          const w=img.width*scale, h=img.height*scale;
-          const x=(canvas.width-w)/2, y=(canvas.height-h)/2;
-          ctx.drawImage(img,x,y,w,h);
-        }
-        ctx.fillStyle="#f9fafb";
-        ctx.textAlign="center";
+      ctx.fillStyle="#f9fafb";
+      ctx.textAlign="center";
+      ctx.font="24px system-ui";
+
+      if(currentLevel === 2){
+        ctx.fillText("Level Complete", canvas.width/2, canvas.height*0.82);
         ctx.font="18px system-ui";
-        ctx.fillText("Press R or TAP to begin Level 2", canvas.width/2, canvas.height-28);
-        ctx.textAlign="start";
+        ctx.fillText("Loading Level 3…", canvas.width/2, canvas.height*0.88);
       }else{
-        const img=images.levelComplete2;
-        if(img.width && img.height){
-          const maxW=canvas.width, maxH=canvas.height;
-          const scale=Math.min(maxW/img.width, maxH/img.height);
-          const w=img.width*scale, h=img.height*scale;
-          const x=(canvas.width-w)/2, y=(canvas.height-h)/2;
-          ctx.drawImage(img,x,y,w,h);
-        }
-        ctx.fillStyle="#f9fafb";
-        ctx.textAlign="center";
-        ctx.font="18px system-ui";
-        ctx.fillText("Press R or TAP to return to Title", canvas.width/2, canvas.height-28);
-        ctx.textAlign="start";
+        ctx.fillText("Tap to Continue", canvas.width/2, canvas.height*0.86);
+      }
+
+      ctx.textAlign="start";
+    }
+
+    function drawHUD(){
+      ctx.fillStyle="rgba(0,0,0,0.25)";
+      ctx.fillRect(0,0,canvas.width,42);
+
+      ctx.fillStyle="#f9fafb";
+      ctx.font="16px system-ui";
+      ctx.fillText("Score: " + score, 18, 26);
+      ctx.fillText("Total Stations: " + coinsCollected, 180, 26);
+      if(bossActive){
+        ctx.fillText("Boss: Dodge " + (bossConfig.avoidRequired - bossShotsDodged) + " more", 420, 26);
       }
     }
 
     function drawGameOverScreen(){
-      const img=images.gameOver;
-      const maxW=canvas.width*0.6, maxH=canvas.height*0.65;
-      const scale=Math.min(maxW/img.width, maxH/img.height);
-      const w=img.width*scale, h=img.height*scale;
-      const x=(canvas.width-w)/2, y=(canvas.height-h)/2-20;
+      if(images.gameOver.width) ctx.drawImage(images.gameOver, 0, 0, canvas.width, canvas.height);
 
-      ctx.fillStyle="rgba(0,0,0,0.65)";
+      ctx.fillStyle="rgba(0,0,0,0.55)";
       ctx.fillRect(0,0,canvas.width,canvas.height);
-      ctx.drawImage(img,x,y,w,h);
 
       const baseY=canvas.height-80;
 
@@ -1254,6 +1237,7 @@ const canvas = document.getElementById("gameCanvas");
 
       ctx.fillStyle="#ff8080";
       ctx.font="18px system-ui";
+      ctx.textAlign="center";
       ctx.fillText("NEW HIGH SCORE – ENTER INITIALS", centerX, baseY-24);
 
       ctx.font="22px system-ui";
@@ -1281,6 +1265,8 @@ const canvas = document.getElementById("gameCanvas");
       ctx.fillStyle="#f9fafb";
       ctx.font="16px system-ui";
       ctx.fillText("OK", centerX, okY+22);
+
+      ctx.textAlign="start";
     }
 
     // -------- GAME FLOW --------
@@ -1288,7 +1274,7 @@ const canvas = document.getElementById("gameCanvas");
       if(gameState==="gameover" || gameState==="enter_initials") return;
 
       playSound(deathSound);
-      if(currentMusic) currentMusic.pause();
+      try { if(currentMusic) currentMusic.pause(); } catch(e){}
       bossActive=false;
 
       if(score>highScore.score){
@@ -1331,13 +1317,15 @@ const canvas = document.getElementById("gameCanvas");
       coinTimer=150;
       hatTimer=700;
 
+      levelCompleteAt = 0;
+
       setPlayerSize("big");
       player.vy=0;
       player.state="run";
       player.onGround=true;
     }
 
-    // -------- INPUT HELPERS --------
+    // -------- INPUT --------
     function getCanvasPos(evt){
       const rect=canvas.getBoundingClientRect();
       let cx,cy;
@@ -1381,63 +1369,40 @@ const canvas = document.getElementById("gameCanvas");
       }
     }
 
-    // -------- KEYBOARD --------
     window.addEventListener("keydown", e=>{
       const key=e.key;
 
-      if(gameState==="enter_initials" && enteringInitials){
-        if(/^[a-zA-Z]$/.test(key)){
-          initials[currentInitialIndex]=key.toUpperCase();
-        }else if(key==="ArrowUp"){
-          incrementLetter(currentInitialIndex);
-        }else if(key==="ArrowDown"){
-          decrementLetter(currentInitialIndex);
-        }else if(key==="ArrowLeft"){
-          currentInitialIndex=Math.max(0,currentInitialIndex-1);
-        }else if(key==="ArrowRight"){
-          currentInitialIndex=Math.min(2,currentInitialIndex+1);
-        }else if(key==="Enter"){
-          saveHighScoreFromInitials();
-        }
-        return;
-      }
-
       if(gameState==="title"){
-        if(key===" " || key==="ArrowUp" || key==="Enter"){
-          gameState="levelIntro";
-        }
+        gameState="levelIntro";
         return;
       }
 
       if(gameState==="levelIntro"){
-        if(key===" " || key==="ArrowUp" || key==="Enter"){
-          resetGame();
-          playLevelMusic();
-          gameState="playing";
-        }
+        resetGame();
+        playLevelMusic();
+        gameState="playing";
         return;
       }
 
       if(gameState==="bossCut"){
-        if(key===" " || key==="ArrowUp" || key==="Enter"){
-          // Resume playing and start boss fight
-          gameState = "playing";
-          startBossFight();
-        }
+        gameState="playing";
+        startBossFight();
         return;
       }
 
       if(gameState==="playing"){
-        if((key===" " || key==="ArrowUp") && player.onGround){
-          player.vy=-30;
-          player.onGround=false;
-          player.state="jump";
+        if(key===" " || key==="ArrowUp"){
+          if(player.onGround){
+            player.vy=-30;
+            player.onGround=false;
+            player.state="jump";
+          }
         }
         return;
       }
 
       if(gameState==="gameover"){
-        if(key==="r" || key==="R"){
+        if(key.toLowerCase()==="r"){
           resetGame();
           playLevelMusic();
           gameState="playing";
@@ -1446,27 +1411,18 @@ const canvas = document.getElementById("gameCanvas");
       }
 
       if(gameState==="levelComplete"){
-        if(key==="r" || key==="R" || key===" " || key==="Enter"){
-          if(currentLevel === 1){
-            currentLevel = 2;
-            gameState    = "levelIntro";
-          }else{
-            currentLevel = 1;
-            gameState    = "title";
-          }
+        if(currentLevel === 1){
+          currentLevel = 2;
+          gameState    = "levelIntro";
+        }else{
+          try { if (currentMusic) currentMusic.pause(); } catch(e){}
+          window.location.href = LEVEL3_URL;
         }
       }
     });
 
-    // -------- TOUCH / MOUSE --------
     function handleTap(evt){
-      evt.preventDefault();
-      const pos=getCanvasPos(evt);
-
-      if(gameState==="enter_initials" && enteringInitials){
-        handleInitialsPointer(pos.x,pos.y);
-        return;
-      }
+      if(evt && evt.cancelable) evt.preventDefault();
 
       if(gameState==="title"){
         gameState="levelIntro";
@@ -1495,6 +1451,12 @@ const canvas = document.getElementById("gameCanvas");
         return;
       }
 
+      if(gameState==="enter_initials" && enteringInitials){
+        const pos = getCanvasPos(evt);
+        handleInitialsPointer(pos.x, pos.y);
+        return;
+      }
+
       if(gameState==="gameover"){
         resetGame();
         playLevelMusic();
@@ -1507,8 +1469,8 @@ const canvas = document.getElementById("gameCanvas");
           currentLevel = 2;
           gameState    = "levelIntro";
         }else{
-          currentLevel = 1;
-          gameState    = "title";
+          try { if (currentMusic) currentMusic.pause(); } catch(e){}
+          window.location.href = LEVEL3_URL;
         }
       }
     }
@@ -1551,7 +1513,6 @@ const canvas = document.getElementById("gameCanvas");
          gameState==="enter_initials" || gameState==="levelComplete"){
         drawScrollingBackground();
       }else if(gameState==="bossCut"){
-        // Simple static background for cutscene
         ctx.fillStyle="#000";
         ctx.fillRect(0,0,canvas.width,canvas.height);
       }else{
@@ -1572,6 +1533,16 @@ const canvas = document.getElementById("gameCanvas");
         drawBossCutScreen();
       }else if(gameState==="levelComplete"){
         drawLevelCompleteScreen();
+
+        // ✅ Auto-go to Level 3 after Level 2 completion (no extra tap needed)
+        if(currentLevel === 2){
+          if(!levelCompleteAt) levelCompleteAt = performance.now();
+          if(performance.now() - levelCompleteAt >= LEVEL2_COMPLETE_REDIRECT_DELAY_MS){
+            try { if (currentMusic) currentMusic.pause(); } catch(e){}
+            window.location.href = LEVEL3_URL;
+            return;
+          }
+        }
       }else{
         updateWorldObjects();
         updatePlayer();
@@ -1595,7 +1566,6 @@ const canvas = document.getElementById("gameCanvas");
 
       requestAnimationFrame(gameLoop);
     }
-  
   </script>
 </body>
 </html>
