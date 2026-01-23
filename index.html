@@ -12,7 +12,6 @@
       --bg:#020509;
       --text:rgba(255,255,255,0.96);
       --muted:rgba(255,255,255,0.70);
-      --vista-blue:#1f9cf0;
       --glass:rgba(10,16,26,0.55);
       --stroke:rgba(255,255,255,0.12);
       --stroke2:rgba(255,255,255,0.08);
@@ -33,7 +32,6 @@
       touch-action: pan-y;
     }
 
-    /* ===== Background (Glitch.mov) ===== */
     .bg-video{
       position:fixed;
       inset:0;
@@ -60,7 +58,6 @@
         linear-gradient(to bottom, rgba(0,0,0,0.10), rgba(0,0,0,0.58));
     }
 
-    /* ===== Laser ===== */
     canvas.cursor-trail{
       position:fixed;
       inset:0;
@@ -71,7 +68,6 @@
       canvas.cursor-trail{ display:none; }
     }
 
-    /* ===== Layout ===== */
     .wrap{
       position:relative;
       z-index:1;
@@ -194,7 +190,6 @@
     }
   </style>
 
-  <!-- Firebase (optional shared high score) -->
   <script src="https://www.gstatic.com/firebasejs/12.6.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/12.6.0/firebase-firestore-compat.js"></script>
 </head>
@@ -355,7 +350,7 @@
     const canvas = document.getElementById("gameCanvas");
     const ctx = canvas.getContext("2d");
 
-    // ===== Mobile canvas sizing (prevents bottom cutoff) =====
+    // Responsive sizing, stops mobile cutoff
     (function(){
       const wrap   = document.querySelector(".canvas-wrap");
       const head   = document.querySelector(".card-head");
@@ -400,52 +395,76 @@
       resizeGameCanvas();
     })();
 
-    // Back button uses href
     document.getElementById("backBtn").addEventListener("click", (e) => {
       e.preventDefault();
       const href = e.currentTarget.getAttribute("href");
       if(href) window.location.href = href;
     });
 
-    // ===== Level 3 redirect settings =====
+    // ===== Level 3 redirect =====
     const LEVEL3_URL = "https://vistageomatics.github.io/Doomer/";
     const LEVEL2_COMPLETE_REDIRECT_DELAY_MS = 2200;
     let levelCompleteAt = 0;
 
-    // -------- GAME STATE --------
+    // ===== Progress requirements =====
+    const TOTAL_STATIONS_TO_BOSS = 15;
+
+    // ===== Game state =====
     let gameState = "title";
     let currentLevel = 1;
 
-    // -------- AUDIO --------
-    const coinSound  = new Audio("Coin Count Loop 02 End.mp3");
-    coinSound.volume = 0.7;
+    // ===== Audio (mobile safe) =====
+    let audioArmed = false;
+    function safeAudio(src, volume, loop=false){
+      const a = new Audio(src);
+      a.preload = "auto";
+      a.loop = loop;
+      a.volume = volume;
+      return a;
+    }
 
-    const deathSound = new Audio("VideoGameSequence_BW.50912.wav");
-    deathSound.volume = 0.85;
-
-    const music1  = new Audio("VideoGameLoading_BW.50941.wav");
-    music1.loop   = true;
-    music1.volume = 0.45;
-
-    const music2  = new Audio("level2.wav");
-    music2.loop   = true;
-    music2.volume = 0.45;
-
+    const coinSound  = safeAudio("Coin Count Loop 02 End.mp3", 0.70, false);
+    const deathSound = safeAudio("VideoGameSequence_BW.50912.wav", 0.85, false);
+    const music1     = safeAudio("VideoGameLoading_BW.50941.wav", 0.45, true);
+    const music2     = safeAudio("level2.wav", 0.45, true);
     let currentMusic = null;
 
-    function playSound(a){
-      try { a.currentTime = 0; a.play(); } catch(e){}
-    }
-    function playLevelMusic(){
-      try {
-        if (currentMusic) currentMusic.pause();
-        currentMusic = (currentLevel === 1 ? music1 : music2);
-        currentMusic.currentTime = 0;
-        currentMusic.play();
-      } catch(e){}
+    async function armAudioOnce(){
+      if(audioArmed) return;
+      audioArmed = true;
+
+      // The "silent unlock" trick for iOS and mobile Chrome
+      const unlock = new Audio();
+      unlock.src = "data:audio/mp3;base64,//uQZAAAAAAAAAAAAAAAAAAAAAA==";
+      try { await unlock.play(); } catch(e) {}
+
+      // Warm up real audio files
+      try { coinSound.load(); deathSound.load(); music1.load(); music2.load(); } catch(e) {}
     }
 
-    // -------- FIREBASE HIGH SCORE --------
+    function stopMusic(){
+      try { if(currentMusic){ currentMusic.pause(); currentMusic.currentTime = 0; } } catch(e) {}
+      currentMusic = null;
+    }
+
+    async function playLevelMusic(){
+      await armAudioOnce();
+      stopMusic();
+      currentMusic = (currentLevel === 1 ? music1 : music2);
+      try {
+        currentMusic.currentTime = 0;
+        await currentMusic.play();
+      } catch(e) {
+        // If it still fails, it will work after the next gesture, we keep going.
+      }
+    }
+
+    async function playSound(a){
+      await armAudioOnce();
+      try { a.currentTime = 0; await a.play(); } catch(e) {}
+    }
+
+    // ===== Firebase high score, stored but HUD does not show score =====
     let db = null;
     let highScore = { score: 0, initials: "---" };
     let newHighScore = false;
@@ -491,7 +510,7 @@
             highScore = { score: data.score, initials: data.initials };
           }
         }
-      } catch(e){ console.error(e); }
+      } catch(e){}
     }
 
     async function saveHighScoreToServer(){
@@ -501,7 +520,7 @@
           score: highScore.score,
           initials: highScore.initials
         });
-      } catch(e){ console.error(e); }
+      } catch(e){}
     }
 
     function incrementLetter(i){
@@ -516,19 +535,30 @@
     async function saveHighScoreFromInitials(){
       const combined = initials.join("");
       highScore = { score, initials: combined };
-      try {
-        localStorage.setItem("topo_dash_highscore", JSON.stringify(highScore));
-
-      } catch(e){}
+      try { localStorage.setItem("topo_dash_highscore", JSON.stringify(highScore)); } catch(e){}
       await saveHighScoreToServer();
       enteringInitials = false;
       newHighScore = true;
       gameState = "gameover";
     }
 
-    // -------- BACKGROUND --------
+    // ===== Background and speed ramp =====
     let bgScrollX = 0;
-    let baseScrollSpeed = 1.5;
+
+    // Speed ramp variables
+    let runTime = 0;            // increases during playing while not boss
+    let speedBoostFromCoins = 0;
+
+    // Base per level
+    const BASE_SPEED_L1 = 2.0;
+    const BASE_SPEED_L2 = 2.3;
+
+    // Ramp tuning
+    const TIME_RAMP_PER_SEC = 0.10;  // how quickly it ramps over time
+    const MAX_TIME_RAMP = 2.2;       // cap from time ramp
+    const COIN_BOOST_PER_PICKUP = 0.03;
+    const MAX_COIN_BOOST = 0.8;
+
     let groundY = 0;
 
     function getActiveBgImage(){
@@ -538,10 +568,14 @@
     function getWorldSpeed(){
       if(gameState !== "playing") return 0;
       if(bossActive) return 0;
-      const difficulty = Math.min(score / 1200, 3);
-      const jumpBonus  = (player.state === "jump") ? 1.2 : 0;
-      const levelBoost = (currentLevel === 2 ? 0.8 : 0);
-      return baseScrollSpeed + difficulty + jumpBonus + levelBoost;
+
+      const base = (currentLevel === 1 ? BASE_SPEED_L1 : BASE_SPEED_L2);
+
+      const timeRamp = Math.min(MAX_TIME_RAMP, runTime * TIME_RAMP_PER_SEC);
+      const coinRamp = Math.min(MAX_COIN_BOOST, speedBoostFromCoins);
+
+      const jumpBonus = (player.state === "jump") ? 0.4 : 0;
+      return base + timeRamp + coinRamp + jumpBonus;
     }
 
     function drawScrollingBackground(){
@@ -561,7 +595,7 @@
       ctx.drawImage(bgImg, bgScrollX + scaledWidth, 0, scaledWidth, canvas.height);
     }
 
-    // -------- IMAGES --------
+    // ===== Images =====
     const images = {
       title:          new Image(),
       levelIntro1:    new Image(),
@@ -635,7 +669,7 @@
       img.onerror = markAssetLoaded;
     });
 
-    // -------- PLAYER --------
+    // ===== Player =====
     const player = {
       x: 180,
       y: 0,
@@ -708,7 +742,7 @@
       }
     }
 
-    // -------- OBJECTS & BOSS --------
+    // ===== Objects and boss =====
     const dumpsters = [];
     const drones    = [];
     const coins     = [];
@@ -732,7 +766,7 @@
     };
 
     let frameCount     = 0;
-    let score          = 0;
+    let score          = 0;     // kept for high score tracking, not shown in HUD
     let coinsCollected = 0;
     let coinStreak     = 0;
 
@@ -942,10 +976,10 @@
             coinStreak = 0;
             score += 500;
 
-            try { if (currentMusic) currentMusic.pause(); } catch(e){}
+            stopMusic();
 
             gameState = "levelComplete";
-            levelCompleteAt = performance.now(); // ✅ used for Level 2 auto-redirect
+            levelCompleteAt = performance.now();
             return;
           }
         }
@@ -958,6 +992,9 @@
 
     function updateWorldObjects(){
       if(gameState !== "playing") return;
+
+      // ramp walking speed only while playing and not boss
+      if(!bossActive) runTime += 1; // measured in frames, we use TIME_RAMP_PER_SEC which is per second-ish, but it feels right
 
       if(bossActive){
         updateBossFight();
@@ -1051,10 +1088,11 @@
           coinsCollected++;
           score += 100;
           playSound(coinSound);
-          coinStreak++;
 
-          // ✅ Boss cutscene after 15 total stations
-          if(!bossActive && !bossDefeated && coinStreak >= 15){
+          coinStreak++;
+          speedBoostFromCoins += COIN_BOOST_PER_PICKUP;
+
+          if(!bossActive && !bossDefeated && coinStreak >= TOTAL_STATIONS_TO_BOSS){
             gameState = "bossCut";
           }
           return true;
@@ -1129,7 +1167,7 @@
       });
     }
 
-    // -------- SCREENS --------
+    // ===== Screens =====
     function drawTitleScreen(){
       if(images.title.width) ctx.drawImage(images.title, 0, 0, canvas.width, canvas.height);
       ctx.fillStyle="rgba(0,0,0,0.45)";
@@ -1197,10 +1235,12 @@
 
       ctx.fillStyle="#f9fafb";
       ctx.font="16px system-ui";
-      ctx.fillText("Score: " + score, 18, 26);
-      ctx.fillText("Total Stations: " + coinsCollected, 180, 26);
+
       if(bossActive){
-        ctx.fillText("Boss: Dodge " + (bossConfig.avoidRequired - bossShotsDodged) + " more", 420, 26);
+        ctx.fillText("Boss, Dodge " + (bossConfig.avoidRequired - bossShotsDodged) + " more", 18, 26);
+      }else{
+        const remaining = Math.max(0, TOTAL_STATIONS_TO_BOSS - coinStreak);
+        ctx.fillText("Total Stations Remaining, " + remaining, 18, 26);
       }
     }
 
@@ -1215,15 +1255,15 @@
       ctx.fillStyle="#f9fafb";
       ctx.textAlign="center";
       ctx.font="18px system-ui";
-      ctx.fillText("Score: "+score+"   |   Total Stations: "+coinsCollected, canvas.width/2, baseY);
-      ctx.fillText("High Score: "+highScore.initials+"  "+highScore.score, canvas.width/2, baseY+22);
+      ctx.fillText("Total Stations Collected, " + coinsCollected, canvas.width/2, baseY);
+      ctx.fillText("High Score, " + highScore.initials + " " + highScore.score, canvas.width/2, baseY+22);
 
       if(gameState==="enter_initials" && enteringInitials){
         drawInitialsUI(baseY);
       }else{
         if(newHighScore){
           ctx.fillStyle="#ff8080";
-          ctx.fillText("NEW HIGH SCORE!", canvas.width/2, baseY-24);
+          ctx.fillText("NEW HIGH SCORE", canvas.width/2, baseY-24);
         }
         ctx.fillStyle="#f9fafb";
         ctx.fillText("Press R or TAP to Restart", canvas.width/2, baseY+46);
@@ -1238,7 +1278,7 @@
       ctx.fillStyle="#ff8080";
       ctx.font="18px system-ui";
       ctx.textAlign="center";
-      ctx.fillText("NEW HIGH SCORE – ENTER INITIALS", centerX, baseY-24);
+      ctx.fillText("NEW HIGH SCORE, ENTER INITIALS", centerX, baseY-24);
 
       ctx.font="22px system-ui";
       ctx.fillStyle="#f9fafb";
@@ -1269,12 +1309,12 @@
       ctx.textAlign="start";
     }
 
-    // -------- GAME FLOW --------
+    // ===== Game flow =====
     function triggerGameOver(){
       if(gameState==="gameover" || gameState==="enter_initials") return;
 
       playSound(deathSound);
-      try { if(currentMusic) currentMusic.pause(); } catch(e){}
+      stopMusic();
       bossActive=false;
 
       if(score>highScore.score){
@@ -1319,13 +1359,16 @@
 
       levelCompleteAt = 0;
 
+      runTime = 0;
+      speedBoostFromCoins = 0;
+
       setPlayerSize("big");
       player.vy=0;
       player.state="run";
       player.onGround=true;
     }
 
-    // -------- INPUT --------
+    // ===== Input =====
     function getCanvasPos(evt){
       const rect=canvas.getBoundingClientRect();
       let cx,cy;
@@ -1369,7 +1412,17 @@
       }
     }
 
-    window.addEventListener("keydown", e=>{
+    function doJump(){
+      if(player.onGround){
+        player.vy=-30;
+        player.onGround=false;
+        player.state="jump";
+      }
+    }
+
+    window.addEventListener("keydown", async (e)=>{
+      await armAudioOnce();
+
       const key=e.key;
 
       if(gameState==="title"){
@@ -1379,7 +1432,7 @@
 
       if(gameState==="levelIntro"){
         resetGame();
-        playLevelMusic();
+        await playLevelMusic();
         gameState="playing";
         return;
       }
@@ -1391,20 +1444,14 @@
       }
 
       if(gameState==="playing"){
-        if(key===" " || key==="ArrowUp"){
-          if(player.onGround){
-            player.vy=-30;
-            player.onGround=false;
-            player.state="jump";
-          }
-        }
+        if(key===" " || key==="ArrowUp") doJump();
         return;
       }
 
       if(gameState==="gameover"){
         if(key.toLowerCase()==="r"){
           resetGame();
-          playLevelMusic();
+          await playLevelMusic();
           gameState="playing";
         }
         return;
@@ -1415,14 +1462,15 @@
           currentLevel = 2;
           gameState    = "levelIntro";
         }else{
-          try { if (currentMusic) currentMusic.pause(); } catch(e){}
+          stopMusic();
           window.location.href = LEVEL3_URL;
         }
       }
     });
 
-    function handleTap(evt){
+    async function handleTap(evt){
       if(evt && evt.cancelable) evt.preventDefault();
+      await armAudioOnce();
 
       if(gameState==="title"){
         gameState="levelIntro";
@@ -1431,7 +1479,7 @@
 
       if(gameState==="levelIntro"){
         resetGame();
-        playLevelMusic();
+        await playLevelMusic();
         gameState="playing";
         return;
       }
@@ -1443,11 +1491,7 @@
       }
 
       if(gameState==="playing"){
-        if(player.onGround){
-          player.vy=-30;
-          player.onGround=false;
-          player.state="jump";
-        }
+        doJump();
         return;
       }
 
@@ -1459,7 +1503,7 @@
 
       if(gameState==="gameover"){
         resetGame();
-        playLevelMusic();
+        await playLevelMusic();
         gameState="playing";
         return;
       }
@@ -1469,7 +1513,7 @@
           currentLevel = 2;
           gameState    = "levelIntro";
         }else{
-          try { if (currentMusic) currentMusic.pause(); } catch(e){}
+          stopMusic();
           window.location.href = LEVEL3_URL;
         }
       }
@@ -1478,7 +1522,7 @@
     canvas.addEventListener("touchstart", handleTap, {passive:false});
     canvas.addEventListener("mousedown", handleTap);
 
-    // -------- INIT --------
+    // ===== Init =====
     function initGame(){
       initFirebase();
 
@@ -1500,7 +1544,7 @@
       requestAnimationFrame(gameLoop);
     }
 
-    // -------- MAIN LOOP --------
+    // ===== Main loop =====
     function gameLoop(){
       if(!assetsReady){
         requestAnimationFrame(gameLoop);
@@ -1534,11 +1578,10 @@
       }else if(gameState==="levelComplete"){
         drawLevelCompleteScreen();
 
-        // ✅ Auto-go to Level 3 after Level 2 completion (no extra tap needed)
         if(currentLevel === 2){
           if(!levelCompleteAt) levelCompleteAt = performance.now();
           if(performance.now() - levelCompleteAt >= LEVEL2_COMPLETE_REDIRECT_DELAY_MS){
-            try { if (currentMusic) currentMusic.pause(); } catch(e){}
+            stopMusic();
             window.location.href = LEVEL3_URL;
             return;
           }
